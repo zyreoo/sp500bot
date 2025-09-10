@@ -22,9 +22,15 @@ def log_event(event):
         f.write(f"{datetime.now().isoformat()} - {event}\n")
 
 def fetch_sp500_price():
+    import time
     try:
         url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=^GSPC'
         resp = requests.get(url)
+        if resp.status_code == 429:
+            log_event('Yahoo Finance rate limit hit (429). Retrying after delay.')
+            print('Yahoo Finance rate limit hit (429). Retrying after 5 seconds...')
+            time.sleep(5)
+            resp = requests.get(url)
         resp.raise_for_status()
         data = resp.json()
         price = data['quoteResponse']['result'][0]['regularMarketPrice']
@@ -68,6 +74,10 @@ def interpret_news_with_ai(headlines, price=None):
             messages=[{"role": "user", "content": prompt}]
         )
         return response['choices'][0]['message']['content']
+    except openai.error.RateLimitError as e:
+        log_event(f"OpenAI API rate limit (429): {e}")
+        print(f"OpenAI API rate limit (429): {e}")
+        return "Error: OpenAI API rate limit exceeded. Please try again later."
     except Exception as e:
         log_event(f"Error with OpenAI: {e}")
         print(f"Error with OpenAI: {e}")
@@ -121,9 +131,12 @@ def send_email(subject, body):
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
         log_event(f"Email sent: {subject}")
+        print('Email sent!')
+        return True
     except Exception as e:
         log_event(f"Error sending email: {e}")
         print(f"Error sending email: {e}")
+        return False
 
 def main():
     headlines = fetch_sp500_news()
@@ -146,9 +159,11 @@ def main():
         body += f"Suggested Take Profit: {take_profit}\n"
     body += ("\nHeadlines:\n" + '\n'.join(headlines) +
              "\n\nWARNING: You are trading with 20x leverage on Revolut. This is extremely risky. Always use a stop loss and never risk more than you can afford to lose.")
-    send_email(subject, body)
-    print('Email sent!')
-    log_event('Email sent!')
+    email_success = send_email(subject, body)
+    if email_success:
+        log_event('Email sent!')
+    else:
+        log_event('Email failed to send!')
 
 if __name__ == '__main__':
     main()
