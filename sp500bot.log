@@ -1,0 +1,21 @@
+2025-09-10T09:45:26.064396 - Error fetching news: 401 Client Error: Unauthorized for url: https://newsapi.org/v2/everything?q=S%26P%20500%20OR%20SP500%20OR%20%22S&P%20500%22&language=en&sortBy=publishedAt&pageSize=5&apiKey=None
+2025-09-10T09:45:26.067402 - No news found.
+2025-09-10T20:27:51.226792 - Error fetching news: 401 Client Error: Unauthorized for url: https://newsapi.org/v2/everything?q=S%26P%20500%20OR%20SP500%20OR%20%22S&P%20500%22&language=en&sortBy=publishedAt&pageSize=5&apiKey=None
+2025-09-10T20:27:51.230190 - No news found.
+2025-09-11T09:43:52.668938 - Error fetching news: 401 Client Error: Unauthorized for url: https://newsapi.org/v2/everything?q=S%26P%20500%20OR%20SP500%20OR%20%22S&P%20500%22&language=en&sortBy=publishedAt&pageSize=5&apiKey=None
+2025-09-11T09:43:52.673504 - No news found.
+2025-09-11T11:01:42.258815 - Missing NEWS_API_KEY environment variable. Create a .env file or export it in the shell.
+2025-09-11T11:01:42.259251 - No news found.
+2025-09-11T11:02:24.091032 - Missing NEWS_API_KEY environment variable. Create a .env file or export it in the shell.
+2025-09-11T11:02:24.091352 - No news found.
+2025-09-11T11:02:57.309107 - Missing NEWS_API_KEY environment variable. Create a .env file or export it in the shell.
+2025-09-11T11:02:57.309464 - No news found.
+2025-09-11T11:05:47.172451 - Error fetching news: 400 Client Error: Bad Request for url: https://newsapi.org/v2/everything?q=S%26P%20500%20OR%20SP500%20OR%20%22S&P%20500%22&language=en&sortBy=publishedAt&pageSize=5
+2025-09-11T11:05:47.176259 - No news found.
+2025-09-11T11:06:22.752980 - Yahoo Finance rate limit hit (429). Retrying after delay.
+2025-09-11T11:06:28.034355 - Error fetching S&P 500 price: 429 Client Error: Too Many Requests for url: https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC
+2025-09-11T11:07:06.294140 - Yahoo Finance rate limit hit (429). Retrying after delay.
+2025-09-11T11:07:11.637690 - Error fetching S&P 500 price: 429 Client Error: Too Many Requests for url: https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC
+2025-09-11T11:07:16.647008 - OpenAI API rate limit (429): Error code: 429 - {'error': {'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.', 'type': 'insufficient_quota', 'param': None, 'code': 'insufficient_quota'}}
+2025-09-11T11:07:17.799851 - Error sending email: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials 5b1f17b1804b1-45e037d741asm13277575e9.23 - gsmtp')
+2025-09-11T11:07:17.801069 - Email failed to send!

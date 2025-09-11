@@ -1,9 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import requests
 import smtplib
 from email.mime.text import MIMEText
-import openai
+from openai import OpenAI, RateLimitError
 from datetime import datetime
 import re
 
@@ -41,24 +42,39 @@ def fetch_sp500_price():
         return None
 
 def fetch_sp500_news():
-    url = (
-        f'https://newsapi.org/v2/everything?'
-        f'q=S%26P%20500 OR SP500 OR "S&P 500"&'
-        f'language=en&sortBy=publishedAt&pageSize=5&apiKey={NEWS_API_KEY}'
-    )
+    if not NEWS_API_KEY:
+        log_event('Missing NEWS_API_KEY environment variable. Create a .env file or export it in the shell.')
+        print('Missing NEWS_API_KEY. Set it in a .env file or export it in your shell.')
+        return []
+    url = 'https://newsapi.org/v2/everything'
+    params = {
+        'q': 'S&P 500 OR SP500 OR "S&P 500"',
+        'language': 'en',
+        'sortBy': 'publishedAt',
+        'pageSize': 5,
+    }
     try:
-        resp = requests.get(url)
+        headers = {"X-Api-Key": NEWS_API_KEY}
+        resp = requests.get(url, headers=headers, params=params)
         resp.raise_for_status()
         data = resp.json()
         headlines = [a['title'] for a in data.get('articles', [])]
         return headlines
     except Exception as e:
-        log_event(f"Error fetching news: {e}")
+        try:
+            error_body = resp.text if 'resp' in locals() else ''
+        except Exception:
+            error_body = ''
+        log_event(f"Error fetching news: {e} {error_body}")
         print(f"Error fetching news: {e}")
         return []
 
 def interpret_news_with_ai(headlines, price=None):
-    openai.api_key = OPENAI_API_KEY
+    if not OPENAI_API_KEY:
+        log_event('Missing OPENAI_API_KEY environment variable. Create a .env file or export it in the shell.')
+        print('Missing OPENAI_API_KEY. Set it in a .env file or export it in your shell.')
+        return "Error: Missing OPENAI_API_KEY."
+    client = OpenAI(api_key=OPENAI_API_KEY)
     prompt = (
         "You are advising a trader who always uses 20x leverage and trades S&P 500 on Revolut. "
         "Your recommendations must be conservative and always include a stop loss and take profit, based on the strength of the news and current market conditions. "
@@ -69,12 +85,12 @@ def interpret_news_with_ai(headlines, price=None):
         f"Headlines: {headlines}"
     )
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}]
         )
-        return response['choices'][0]['message']['content']
-    except openai.error.RateLimitError as e:
+        return response.choices[0].message.content
+    except RateLimitError as e:
         log_event(f"OpenAI API rate limit (429): {e}")
         print(f"OpenAI API rate limit (429): {e}")
         return "Error: OpenAI API rate limit exceeded. Please try again later."
@@ -122,6 +138,10 @@ def suggest_stoploss_takeprofit(price, action):
     return (stop_loss, take_profit)
 
 def send_email(subject, body):
+    if not EMAIL_FROM or not EMAIL_TO or not EMAIL_PASSWORD:
+        log_event('Missing email env vars (EMAIL_FROM/EMAIL_TO/EMAIL_PASSWORD). Set them in .env or shell.')
+        print('Missing email configuration. Set EMAIL_FROM, EMAIL_TO, EMAIL_PASSWORD.')
+        return False
     msg = MIMEText(body)
     msg['Subject'] = subject
     msg['From'] = EMAIL_FROM
