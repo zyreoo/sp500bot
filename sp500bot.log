@@ -30,3 +30,11 @@
 2025-11-17T13:00:22.329525 - OpenAI API rate limit (429): Error code: 429 - {'error': {'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.', 'type': 'insufficient_quota', 'param': None, 'code': 'insufficient_quota'}}
 2025-11-17T13:15:39.771601 - OpenAI API rate limit (429): Error code: 429 - {'error': {'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.', 'type': 'insufficient_quota', 'param': None, 'code': 'insufficient_quota'}}
 2025-11-17T13:16:35.528196 - OpenAI API rate limit (429): Error code: 429 - {'error': {'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.', 'type': 'insufficient_quota', 'param': None, 'code': 'insufficient_quota'}}
+2025-11-17T23:50:42.870286 - Missing MAIL_TRAP_API_TOKEN environment variable. Create a .env file or export it in the shell.
+2025-11-17T23:50:42.871290 - Email failed to send!
+2025-11-17T23:54:06.483115 - Missing MAIL_TRAP_API_TOKEN environment variable. Create a .env file or export it in the shell.
+2025-11-17T23:54:06.483759 - Email failed to send!
+2025-11-17T23:54:36.000112 - Email sent successfully via Mailtrap: {'success': True, 'message_ids': ['01e2f2e0-c400-11f0-0040-f13664d022fb']}
+2025-11-17T23:54:36.002193 - Email delivered successfully.
+2025-11-17T23:55:43.403118 - Email sent successfully via Mailtrap: {'success': True, 'message_ids': ['2a18fc50-c400-11f0-0000-f1f2a014e63f']}
+2025-11-17T23:55:43.404342 - Email delivered successfully.

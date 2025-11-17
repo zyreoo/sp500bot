@@ -1,5 +1,8 @@
-openai
+alpha_vantage 
 requests
 python-dotenv
-schedule
+mailtrap
 yfinance
+
+
+

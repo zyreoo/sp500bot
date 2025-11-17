@@ -1,20 +1,97 @@
 import os
+import time
+from datetime import datetime, timedelta, time as dt_time
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import requests
-import yfinance as yf
-from datetime import datetime
 import re
+import mailtrap as mt
+import yfinance as yf
+
 
 load_dotenv()
 
+MAIL_TRAP_API_TOKEN = os.environ.get('MAIL_TRAP_API_TOKEN')
+MAIL_TRAP_SENDER_EMAIL = os.environ.get('MAIL_TRAP_SENDER_EMAIL', 'hello@demomailtrap.co')
+MAIL_TRAP_SENDER_NAME = os.environ.get('MAIL_TRAP_SENDER_NAME', 'SP500 Bot')
+MAIL_TRAP_RECIPIENTS = os.environ.get('MAIL_TRAP_RECIPIENTS', 'simone.marton89@gmail.com')
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY')
 HACKCLUB_API_KEY = os.environ.get('HACKCLUB_API_KEY')
-
 LOG_FILE = 'sp500bot.log'
+MARKET_TIMEZONE = os.environ.get('MARKET_TIMEZONE', 'America/New_York')
+MARKET_ALERT_TIMES_STR = os.environ.get('MARKET_ALERT_TIMES', '09:30,15:30')
+SCHEDULE_AT_MARKET_OPEN = os.environ.get('SCHEDULE_AT_MARKET_OPEN', 'false').lower() in {'1', 'true', 'yes', 'on'}
+MARKET_ZONE = None
+MARKET_ALERT_TIMES = None
 
 def log_event(event):
     with open(LOG_FILE, 'a') as f:
         f.write(f"{datetime.now().isoformat()} - {event}\n")
+
+def _init_market_zone():
+    try:
+        return ZoneInfo(MARKET_TIMEZONE)
+    except Exception:
+        message = f"Invalid MARKET_TIMEZONE '{MARKET_TIMEZONE}'. Falling back to UTC."
+        log_event(message)
+        print(message)
+        return ZoneInfo("UTC")
+
+MARKET_ZONE = _init_market_zone()
+
+def _parse_alert_times(value):
+    parsed_times = []
+    for part in value.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            hour, minute = [int(token) for token in part.split(':', 1)]
+            parsed_times.append(dt_time(hour=hour, minute=minute))
+        except Exception:
+            message = f"Invalid alert time '{part}'. Skipping."
+            log_event(message)
+            print(message)
+    if not parsed_times:
+        message = "No valid MARKET_ALERT_TIMES provided. Using defaults 09:30 and 15:30."
+        log_event(message)
+        print(message)
+        parsed_times = [dt_time(hour=9, minute=30), dt_time(hour=15, minute=30)]
+    return sorted(parsed_times)
+
+MARKET_ALERT_TIMES = _parse_alert_times(MARKET_ALERT_TIMES_STR)
+
+def send_email(subject, body):
+    if not MAIL_TRAP_API_TOKEN:
+        message = 'Missing MAIL_TRAP_API_TOKEN environment variable. Create a .env file or export it in the shell.'
+        log_event(message)
+        print(message)
+        return False
+
+    recipients = [addr.strip() for addr in MAIL_TRAP_RECIPIENTS.split(',') if addr.strip()]
+    if not recipients:
+        message = 'MAIL_TRAP_RECIPIENTS is empty. Configure at least one recipient email.'
+        log_event(message)
+        print(message)
+        return False
+
+    try:
+        mail = mt.Mail(
+            sender=mt.Address(email=MAIL_TRAP_SENDER_EMAIL, name=MAIL_TRAP_SENDER_NAME),
+            to=[mt.Address(email=email) for email in recipients],
+            subject=subject,
+            text=body,
+            category="SP500 Bot Alert",
+        )
+        client = mt.MailtrapClient(token=MAIL_TRAP_API_TOKEN)
+        response = client.send(mail)
+        log_event(f"Email sent successfully via Mailtrap: {response}")
+        print("Email sent successfully!")
+        return True
+    except Exception as e:
+        log_event(f"Error sending email: {e}")
+        print(f"Error sending email: {e}")
+        return False
 
 def fetch_sp500_price():
     try:
@@ -125,6 +202,33 @@ def suggest_stoploss_takeprofit(price, action):
         take_profit = None
     return (stop_loss, take_profit)
 
+def next_alert_datetime(reference=None):
+    if reference is None:
+        reference = datetime.now(MARKET_ZONE)
+    else:
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=MARKET_ZONE)
+        else:
+            reference = reference.astimezone(MARKET_ZONE)
+
+    if reference.weekday() >= 5:
+        next_date = _next_weekday_date(reference.date())
+        return datetime.combine(next_date, MARKET_ALERT_TIMES[0], tzinfo=MARKET_ZONE)
+
+    for alert_time in MARKET_ALERT_TIMES:
+        candidate = datetime.combine(reference.date(), alert_time, tzinfo=MARKET_ZONE)
+        if reference < candidate:
+            return candidate
+
+    next_date = _next_weekday_date(reference.date() + timedelta(days=1))
+    return datetime.combine(next_date, MARKET_ALERT_TIMES[0], tzinfo=MARKET_ZONE)
+
+def _next_weekday_date(date_value):
+    next_date = date_value
+    while next_date.weekday() >= 5:
+        next_date += timedelta(days=1)
+    return next_date
+
 def main():
     headlines = fetch_sp500_news()
     if not headlines:
@@ -144,10 +248,38 @@ def main():
         body += f"Suggested Stop Loss: {stop_loss}\n"
     if take_profit:
         body += f"Suggested Take Profit: {take_profit}\n"
-    body += ("\nHeadlines:\n" + '\n'.join(headlines) +
-             "\n\nWARNING: You are trading with 20x leverage on Revolut. This is extremely risky. Always use a stop loss and never risk more than you can afford to lose.")
-    print(f"\n=== EMAIL ALERT (MANUAL SEND) ===\nSubject: {subject}\n\n{body}\n")
-    print("\n--- Implement your own send_email() logic if you want automated emails ---")
+    body += ("\nHeadlines:\n" + '\n'.join(headlines))
+
+    email_sent = send_email(subject, body)
+    if email_sent:
+        log_event('Email delivered successfully.')
+    else:
+        log_event('Email failed to send!')
+
+def run_alert_scheduler():
+    times_display = ', '.join(t.strftime('%H:%M') for t in MARKET_ALERT_TIMES)
+    message = (
+        f"Scheduler enabled. Alerts will run at {times_display} {MARKET_TIMEZONE} on weekdays."
+    )
+    log_event(message)
+    print(message)
+    while True:
+        now = datetime.now(MARKET_ZONE)
+        next_run = next_alert_datetime(now)
+        wait_seconds = max(0, (next_run - now).total_seconds())
+        minutes = wait_seconds / 60 if wait_seconds else 0
+        print(f"Next alert scheduled for {next_run.isoformat()} ({minutes:.1f} minutes).")
+        time.sleep(wait_seconds)
+        try:
+            main()
+        except Exception as exc:
+            log_event(f"Scheduled run failed: {exc}")
+            print(f"Scheduled run failed: {exc}")
+        # small delay to avoid tight loops immediately after execution
+        time.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    if SCHEDULE_AT_MARKET_OPEN:
+        run_alert_scheduler()
+    else:
+        main()
