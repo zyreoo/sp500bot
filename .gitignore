@@ -62,6 +62,9 @@ Pipfile.lock
 # poetry
 poetry.lock
 
+
+.env
+.gitignore
 # mypy
 .mypy_cache/
 .dmypy.json

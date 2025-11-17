@@ -1,3 +1,5 @@
+openai
 requests
 python-dotenv
-openai
+schedule
+yfinance

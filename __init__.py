@@ -1,20 +1,14 @@
 import os
-from pathlib import Path
 from dotenv import load_dotenv
 import requests
-import smtplib
-from email.mime.text import MIMEText
-from openai import OpenAI, RateLimitError
+import yfinance as yf
 from datetime import datetime
 import re
 
 load_dotenv()
 
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-EMAIL_FROM = os.environ.get('EMAIL_FROM')
-EMAIL_TO = os.environ.get('EMAIL_TO')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+HACKCLUB_API_KEY = os.environ.get('HACKCLUB_API_KEY')
 
 LOG_FILE = 'sp500bot.log'
 
@@ -23,22 +17,13 @@ def log_event(event):
         f.write(f"{datetime.now().isoformat()} - {event}\n")
 
 def fetch_sp500_price():
-    import time
     try:
-        url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=^GSPC'
-        resp = requests.get(url)
-        if resp.status_code == 429:
-            log_event('Yahoo Finance rate limit hit (429). Retrying after delay.')
-            print('Yahoo Finance rate limit hit (429). Retrying after 5 seconds...')
-            time.sleep(5)
-            resp = requests.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-        price = data['quoteResponse']['result'][0]['regularMarketPrice']
-        return price
+        ticker = yf.Ticker("^GSPC")
+        price = ticker.history(period="1d")["Close"].iloc[0]
+        return float(price)
     except Exception as e:
-        log_event(f"Error fetching S&P 500 price: {e}")
-        print(f"Error fetching S&P 500 price: {e}")
+        log_event(f"Error fetching S&P 500 price from Yahoo: {e}")
+        print(f"Error fetching S&P 500 price from Yahoo: {e}")
         return None
 
 def fetch_sp500_news():
@@ -70,11 +55,10 @@ def fetch_sp500_news():
         return []
 
 def interpret_news_with_ai(headlines, price=None):
-    if not OPENAI_API_KEY:
-        log_event('Missing OPENAI_API_KEY environment variable. Create a .env file or export it in the shell.')
-        print('Missing OPENAI_API_KEY. Set it in a .env file or export it in your shell.')
-        return "Error: Missing OPENAI_API_KEY."
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    if not HACKCLUB_API_KEY:
+        log_event('Missing HACKCLUB_API_KEY environment variable.')
+        print('Missing HACKCLUB_API_KEY. Set it in your .env or export it.')
+        return "Error: Missing HACKCLUB_API_KEY."
     prompt = (
         "You are advising a trader who always uses 20x leverage and trades S&P 500 on Revolut. "
         "Your recommendations must be conservative and always include a stop loss and take profit, based on the strength of the news and current market conditions. "
@@ -84,19 +68,23 @@ def interpret_news_with_ai(headlines, price=None):
         f"Current S&P 500 price: {price}. "
         f"Headlines: {headlines}"
     )
+    url = "https://ai.hackclub.com/proxy/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {HACKCLUB_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "qwen/qwen3-32b",
+        "messages": [{"role": "user", "content": prompt}]
+    }
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
-    except RateLimitError as e:
-        log_event(f"OpenAI API rate limit (429): {e}")
-        print(f"OpenAI API rate limit (429): {e}")
-        return "Error: OpenAI API rate limit exceeded. Please try again later."
+        resp = requests.post(url, headers=headers, json=data)
+        resp.raise_for_status()
+        response_json = resp.json()
+        return response_json["choices"][0]["message"]["content"]
     except Exception as e:
-        log_event(f"Error with OpenAI: {e}")
-        print(f"Error with OpenAI: {e}")
+        log_event(f"Error with HackClub AI: {e}")
+        print(f"Error with HackClub AI: {e}")
         return "Error: Could not get AI interpretation."
 
 def parse_ai_response(ai_response):
@@ -108,12 +96,12 @@ def parse_ai_response(ai_response):
         if word in ai_response.upper():
             action = word
             break
-    stop_loss_match = re.search(r'Stop Loss\s*[:\-]?\s*([\d\.]+)', ai_response, re.IGNORECASE)
-    take_profit_match = re.search(r'Take Profit\s*[:\-]?\s*([\d\.]+)', ai_response, re.IGNORECASE)
+    stop_loss_match = re.search(r'(Stop\s*Loss|stop\s*loss)[^\d\.%]*([\d\.,]+%?)', ai_response, re.IGNORECASE)
+    take_profit_match = re.search(r'(Take\s*Profit|take\s*profit)[^\d\.%]*([\d\.,]+%?)', ai_response, re.IGNORECASE)
     if stop_loss_match:
-        stop_loss = stop_loss_match.group(1)
+        stop_loss = stop_loss_match.group(2).replace(',', '')
     if take_profit_match:
-        take_profit = take_profit_match.group(1)
+        take_profit = take_profit_match.group(2).replace(',', '')
     lines = ai_response.split('\n')
     for line in lines:
         if 'reason' in line.lower():
@@ -137,27 +125,6 @@ def suggest_stoploss_takeprofit(price, action):
         take_profit = None
     return (stop_loss, take_profit)
 
-def send_email(subject, body):
-    if not EMAIL_FROM or not EMAIL_TO or not EMAIL_PASSWORD:
-        log_event('Missing email env vars (EMAIL_FROM/EMAIL_TO/EMAIL_PASSWORD). Set them in .env or shell.')
-        print('Missing email configuration. Set EMAIL_FROM, EMAIL_TO, EMAIL_PASSWORD.')
-        return False
-    msg = MIMEText(body)
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_FROM
-    msg['To'] = EMAIL_TO
-    try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(EMAIL_FROM, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        log_event(f"Email sent: {subject}")
-        print('Email sent!')
-        return True
-    except Exception as e:
-        log_event(f"Error sending email: {e}")
-        print(f"Error sending email: {e}")
-        return False
-
 def main():
     headlines = fetch_sp500_news()
     if not headlines:
@@ -179,11 +146,8 @@ def main():
         body += f"Suggested Take Profit: {take_profit}\n"
     body += ("\nHeadlines:\n" + '\n'.join(headlines) +
              "\n\nWARNING: You are trading with 20x leverage on Revolut. This is extremely risky. Always use a stop loss and never risk more than you can afford to lose.")
-    email_success = send_email(subject, body)
-    if email_success:
-        log_event('Email sent!')
-    else:
-        log_event('Email failed to send!')
+    print(f"\n=== EMAIL ALERT (MANUAL SEND) ===\nSubject: {subject}\n\n{body}\n")
+    print("\n--- Implement your own send_email() logic if you want automated emails ---")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
