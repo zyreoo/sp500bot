@@ -580,7 +580,8 @@ HTML_PAGE = '''<!DOCTYPE html>
             error.style.display = 'none';
             
             try {
-                const response = await fetch('/api/get-results');
+                const apiUrl = window.location.origin + '/api/get-results';
+                const response = await fetch(apiUrl);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -645,9 +646,9 @@ if __name__ == "__main__":
     
 
     if len(sys.argv) > 1 and sys.argv[1] == '--web':
-        port = 5001
-        print(f"Starting web server on http://localhost:{port}")
-        app.run(host='0.0.0.0', port=port, debug=True)
+        port = int(os.environ.get('PORT', 5001))
+        print(f"Starting web server on http://0.0.0.0:{port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
     elif SCHEDULE_AT_MARKET_OPEN:
         run_alert_scheduler()
     else:
