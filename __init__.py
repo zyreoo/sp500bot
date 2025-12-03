@@ -7,6 +7,7 @@ import requests
 import re
 import mailtrap as mt
 import yfinance as yf
+from flask import Flask, jsonify
 
 
 load_dotenv()
@@ -229,6 +230,33 @@ def _next_weekday_date(date_value):
         next_date += timedelta(days=1)
     return next_date
 
+def get_trading_results():
+    """Get trading results without sending email. Returns a dictionary with all results."""
+    headlines = fetch_sp500_news()
+    if not headlines:
+        log_event('No news found.')
+        return {
+            'error': 'No news found.',
+            'action': 'HOLD',
+            'reason': 'No news available to analyze',
+            'price': None,
+            'stop_loss': None,
+            'take_profit': None,
+            'headlines': []
+        }
+    price = fetch_sp500_price()
+    ai_result = interpret_news_with_ai(headlines, price)
+    action, reason, stop_loss, take_profit = parse_ai_response(ai_result)
+    
+    return {
+        'action': action,
+        'reason': reason,
+        'price': price,
+        'stop_loss': stop_loss,
+        'take_profit': take_profit,
+        'headlines': headlines
+    }
+
 def main():
     headlines = fetch_sp500_news()
     if not headlines:
@@ -278,8 +306,349 @@ def run_alert_scheduler():
         # small delay to avoid tight loops immediately after execution
         time.sleep(1)
 
+
+HTML_PAGE = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S&P 500 Trading Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2em;
+        }
+
+        .button-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        #fetchButton {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1em;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            font-weight: 500;
+        }
+
+        #fetchButton:hover {
+            background: #555;
+        }
+
+        #fetchButton:active {
+            background: #222;
+        }
+
+        #fetchButton:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666;
+            font-size: 1em;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #333;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .result-card {
+            background: #fafafa;
+            border-radius: 4px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .result-card h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .action {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .action.BUY {
+            background: #4a4a4a;
+            color: white;
+        }
+
+        .action.SELL {
+            background: #4a4a4a;
+            color: white;
+        }
+
+        .action.HOLD {
+            background: #4a4a4a;
+            color: white;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .info-value {
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .price {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .headlines-section {
+            margin-top: 20px;
+        }
+
+        .headlines-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .headline-item {
+            background: white;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            color: #000;
+        }
+
+        .headline-item:hover {
+            background: #f5f5f5;
+        }
+
+        .error {
+            background: #f5f5f5;
+            color: #333;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .timestamp {
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📈 S&P 500 Trading Bot</h1>
+        
+        <div class="button-container">
+            <button id="fetchButton" onclick="fetchResults()">Press to See the Result</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Fetching S&P 500 data and analyzing news...</p>
+        </div>
+
+        <div class="results" id="results">
+            <div class="result-card">
+                <h2>Trading Signal</h2>
+                <div>
+                    <span class="action" id="action">-</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Reason:</span>
+                    <span class="info-value" id="reason">-</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Current S&P 500 Price:</span>
+                    <span class="info-value price" id="price">-</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Suggested Stop Loss:</span>
+                    <span class="info-value" id="stopLoss">-</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Suggested Take Profit:</span>
+                    <span class="info-value" id="takeProfit">-</span>
+                </div>
+            </div>
+
+            <div class="result-card headlines-section">
+                <h3>📰 Recent News Headlines</h3>
+                <div id="headlines"></div>
+            </div>
+
+            <div class="timestamp" id="timestamp"></div>
+        </div>
+
+        <div class="error" id="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function fetchResults() {
+            const button = document.getElementById('fetchButton');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const error = document.getElementById('error');
+            
+            // Reset UI
+            button.disabled = true;
+            loading.style.display = 'block';
+            results.classList.remove('show');
+            error.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/get-results');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Display results
+                document.getElementById('action').textContent = data.action || 'HOLD';
+                document.getElementById('action').className = 'action ' + (data.action || 'HOLD');
+                document.getElementById('reason').textContent = data.reason || 'No reason provided';
+                document.getElementById('price').textContent = data.price ? `$${data.price.toFixed(2)}` : 'N/A';
+                document.getElementById('stopLoss').textContent = data.stop_loss || 'N/A';
+                document.getElementById('takeProfit').textContent = data.take_profit || 'N/A';
+                
+                // Display headlines
+                const headlinesDiv = document.getElementById('headlines');
+                if (data.headlines && data.headlines.length > 0) {
+                    headlinesDiv.innerHTML = data.headlines.map(headline => 
+                        `<div class="headline-item">${headline}</div>`
+                    ).join('');
+                } else {
+                    headlinesDiv.innerHTML = '<div class="headline-item">No headlines available</div>';
+                }
+                
+                // Display timestamp
+                document.getElementById('timestamp').textContent = 
+                    `Last updated: ${new Date().toLocaleString()}`;
+                
+                results.classList.add('show');
+                
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.style.display = 'block';
+            } finally {
+                button.disabled = false;
+                loading.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>'''
+
+# Flask app setup
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return HTML_PAGE
+
+@app.route('/api/get-results')
+def api_get_results():
+    try:
+        results = get_trading_results()
+        return jsonify(results)
+    except Exception as e:
+        log_event(f"Error in API endpoint: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == "__main__":
-    if SCHEDULE_AT_MARKET_OPEN:
+    import sys
+    
+
+    if len(sys.argv) > 1 and sys.argv[1] == '--web':
+        port = 5001
+        print(f"Starting web server on http://localhost:{port}")
+        app.run(host='0.0.0.0', port=port, debug=True)
+    elif SCHEDULE_AT_MARKET_OPEN:
         run_alert_scheduler()
     else:
         main()
